@@ -15,8 +15,8 @@ export const SymbolInput = ({ addSymbol }) => {
         if (symbol) {
             addSymbol(symbol);
             ref.current.value = "";
-            ref.current.focus();
         }
+        ref.current.focus();
     };
 
     const onKeyDown = (e) => {

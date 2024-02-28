@@ -15,7 +15,7 @@ export const SymbolGrid = ({ addSymbol, removeSymbol, symbols }) => {
             {symbols.map((symbol, index) => (
                 <div key={index} className="grid-row">
                     <div className="grid-item">{symbol.name}</div>
-                    <LiveCell value={symbol.value.toFixed(2)} />
+                    <LiveCell value={symbol.value?.toFixed(2)} />
                     <div className="grid-item">
                         <button onClick={() => removeSymbol(symbol.name)}>Close</button>
                     </div>

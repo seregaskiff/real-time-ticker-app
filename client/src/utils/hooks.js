@@ -1,69 +1,56 @@
 import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { useState, useEffect, useRef } from 'react';
 
-//provides an exponential backoff policy
-//the default one will retry in 8 times in 1, 2, 4, 8, 16, 32, 64, 128 seconds intervals
-//to implement backoff in equal intervals define base == 1
-const reconnectPolicy = (base = 2, retryCount = 5, interval=1000) => {
-    const numbers = [...Array(retryCount + 1).keys()];
-    return numbers.map(n => Math.round(Math.pow(base, n) * interval));
-}
+// Provides an exponential backoff policy for reconnection attempts
+const reconnectPolicy = (base = 2, retryCount = 5, interval = 1000) => {
+    return [...Array(retryCount).keys()].map(n => Math.pow(base, n) * interval);
+};
 
-
-export const useHubConnection = (url, retryCount = 3, base = 2, interval=1000) => {
-    const [initialConnection, setInitialConnection] = useState(null);
+export const useHubConnection = (url, retryCount = 3, base = 2, interval = 1000) => {
     const [connection, setConnection] = useState(null);
     const [error, setError] = useState(null);
-
     const connectionRef = useRef(null);
 
     useEffect(() => {
+        let isActive = true; // flag to prevent state update after unmount
+        const delays = reconnectPolicy(base, retryCount, interval); // falculate once outside attemptConnection
+
         const newConnection = new HubConnectionBuilder()
             .withUrl(url)
-            .configureLogging(LogLevel.Information) // Optional logging configuration
-            .withAutomaticReconnect(reconnectPolicy())
+            .configureLogging(LogLevel.Information) // fptional: Customize logging level
+            .withAutomaticReconnect(reconnectPolicy(base, retryCount, interval)) // apply custom reconnect policy
             .build();
-        setInitialConnection(newConnection);
-        return () => {
-            newConnection?.stop();
-        };
-    }, [url])
 
-    useEffect(() => {
-        if (!initialConnection)
-            return;
-        let retries = 0;
-        let connectionCreated = false;
-        const createConnection = async () => {
+        const attemptConnection = async (attemptsLeft = retryCount) => {
             try {
-                const newConnection = initialConnection;
-                connectionRef.current = newConnection;
                 await newConnection.start();
-                setConnection(newConnection);
-                setError(null);
-                connectionCreated = true;
+                if (isActive) {
+                    setConnection(newConnection);
+                    setError(null);
+                }
             } catch (err) {
-                //using same retrying algorithm that is in reconnectPolicy
-                if (retries < retryCount) {
-                    retries++;
-                    const delay = interval * Math.pow(base, retries); // Exponential backoff
-                    const warn = `Failed to connect, retrying ${retryCount} times. current retry count:${retries} delay: ${delay}`;
+                if (attemptsLeft > 0) {
+                    const delay = delays[retryCount - attemptsLeft];
+                    const warn = `Failed to connect, retrying ${retryCount} times. attemps left:${attemptsLeft} delay: ${delay}`;
                     console.warn(warn);
-                    setTimeout(createConnection, delay);
+                    setTimeout(() => attemptConnection(attemptsLeft - 1), delay);
                 } else {
-                    const err = `Failed to connect after ${retryCount} retries`;
-                    console.error(err);
-                    setError(new Error(err));
+                    if (isActive) {
+                        setError(new Error(`Failed to connect after ${retryCount} retries`));
+                    }
                 }
             }
         };
 
-        if (!connectionCreated) {
-            createConnection();
-        }
+        attemptConnection();
 
+        connectionRef.current = newConnection;
 
-    }, [url, initialConnection, retryCount, base, interval]);
+        return () => {
+            isActive = false;
+            newConnection.stop();
+        };
+    }, [url, retryCount, base, interval]);
 
     return { connection, error };
 };
